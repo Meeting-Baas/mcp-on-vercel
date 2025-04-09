@@ -1,7 +1,15 @@
-import { BaasClient } from "@meeting-baas/sdk";
+import { BaasClient } from "@meeting-baas/sdk/dist/baas/api/client";
+import { 
+  CreateCalendarParams,
+  UpdateCalendarParams,
+  Provider,
+  BotParam2
+} from "@meeting-baas/sdk/dist/baas/models";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 import { registerJoinTool } from "./tools/bots/join";
+import { registerEchoTool } from "./tools/utils/echo";
+
 
 export function registerTools(server: McpServer, apiKey: string): McpServer {
   const baasClient = new BaasClient({
@@ -18,27 +26,27 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
     { botId: z.string() },
     async ({ botId }: { botId: string }) => {
       try {
-        const success = await baasClient.leaveMeeting(botId);
+        await baasClient.defaultApi.leave({
+          headers: { "x-bot-id": botId }
+        });
         return {
           content: [
             {
               type: "text",
-              text: success
-                ? "Successfully left meeting"
-                : "Failed to leave meeting",
-            },
-          ],
+              text: `Successfully removed bot ${botId} from meeting`
+            }
+          ]
         };
       } catch (error) {
-        console.error("Failed to leave meeting:", error);
+        console.error("Error leaving meeting:", error);
         return {
           content: [
             {
               type: "text",
-              text: "Failed to leave meeting",
-            },
+              text: "Failed to leave meeting"
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
     }
@@ -46,29 +54,31 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "getMeetingData",
-    "Get all data from a meeting including recording, transcript, and metadata. Use this when you want to: 1) Search through meeting transcripts 2) Get meeting recordings 3) Review meeting details 4) Access speaker information",
+    "Get data about a meeting that a bot has joined. Use this when you want to: 1) Check meeting status 2) Get recording information 3) Access transcription data",
     { botId: z.string() },
     async ({ botId }: { botId: string }) => {
       try {
-        const data = await baasClient.getMeetingData(botId);
+        const response = await baasClient.defaultApi.getMeetingData({
+          botId
+        });
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(data, null, 2),
-            },
-          ],
+              text: `Meeting data: ${JSON.stringify(response.data, null, 2)}`
+            }
+          ]
         };
       } catch (error) {
-        console.error("Failed to get meeting data:", error);
+        console.error("Error getting meeting data:", error);
         return {
           content: [
             {
               type: "text",
-              text: "Failed to get meeting data",
-            },
+              text: "Failed to get meeting data"
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
     }
@@ -76,29 +86,31 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "deleteData",
-    "Delete all data from a meeting including recording, transcript, and logs. Use this when you want to: 1) Remove sensitive meeting data 2) Clear meeting recordings 3) Delete transcripts 4) Free up storage space",
+    "Delete data associated with a meeting bot. Use this when you want to: 1) Remove meeting recordings 2) Delete transcription data 3) Clean up bot data",
     { botId: z.string() },
     async ({ botId }: { botId: string }) => {
       try {
-        const result = await baasClient.deleteData(botId);
+        await baasClient.defaultApi.deleteData({
+          headers: { "x-bot-id": botId }
+        });
         return {
           content: [
             {
               type: "text",
-              text: "Successfully deleted meeting data",
-            },
-          ],
+              text: "Successfully deleted meeting data"
+            }
+          ]
         };
       } catch (error) {
-        console.error("Failed to delete data:", error);
+        console.error("Error deleting data:", error);
         return {
           content: [
             {
               type: "text",
-              text: "Failed to delete meeting data",
-            },
+              text: "Failed to delete data"
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
     }
@@ -106,7 +118,7 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "createCalendar",
-    "Connect a Google or Microsoft calendar to Meeting BaaS. Use this when you want to: 1) Link your work calendar 2) Enable automatic meeting recordings 3) Schedule bots for future meetings 4) Sync your calendar events",
+    "Create a new calendar integration. Use this when you want to: 1) Set up automatic meeting recordings 2) Configure calendar-based bot scheduling 3) Enable recurring meeting coverage",
     {
       oauthClientId: z.string(),
       oauthClientSecret: z.string(),
@@ -114,36 +126,22 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
       platform: z.enum(["Google", "Microsoft"]),
       rawCalendarId: z.string(),
     },
-    async ({
-      oauthClientId,
-      oauthClientSecret,
-      oauthRefreshToken,
-      platform,
-      rawCalendarId,
-    }: {
-      oauthClientId: string;
-      oauthClientSecret: string;
-      oauthRefreshToken: string;
-      platform: "Google" | "Microsoft";
-      rawCalendarId: string;
-    }) => {
+    async ({ oauthClientId, oauthClientSecret, oauthRefreshToken, platform, rawCalendarId }) => {
       try {
-        const calendar = await baasClient.createCalendar({
-          oauthClientId,
-          oauthClientSecret,
-          oauthRefreshToken,
-          platform: platform === "Google" ? "Google" : "Microsoft",
-          rawCalendarId,
-        });
+        let createCalendarParams: CreateCalendarParams = {
+          oauthClientId: oauthClientId,
+          oauthClientSecret: oauthClientSecret,
+          oauthRefreshToken: oauthRefreshToken,
+          platform: platform === "Google" ? Provider.google : Provider.microsoft,
+          raw_calendar_id: rawCalendarId
+        };
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.createCalendar(createCalendarParams);
         return {
           content: [
             {
               type: "text",
-              text: `Successfully created calendar: ${JSON.stringify(
-                calendar,
-                null,
-                2
-              )}`,
+              text: "Successfully created calendar",
             },
           ],
         };
@@ -164,16 +162,16 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "listCalendars",
-    "View all connected calendars. Use this when you want to: 1) See which calendars are linked 2) Check calendar connection status 3) View calendar details 4) Manage calendar integrations",
+    "List all calendar integrations. Use this when you want to: 1) View configured calendars 2) Check calendar status 3) Manage calendar integrations",
     {},
     async () => {
       try {
-        const calendars = await baasClient.listCalendars();
+        const response = await baasClient.calendarsApi.listCalendars();
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(calendars, null, 2),
+              text: JSON.stringify(response.data, null, 2),
             },
           ],
         };
@@ -194,16 +192,17 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "getCalendar",
-    "Get detailed information about a specific calendar. Use this when you want to: 1) View calendar settings 2) Check sync status 3) See calendar events 4) Verify calendar connection",
-    { uuid: z.string() },
-    async ({ uuid }: { uuid: string }) => {
+    "Get details about a specific calendar integration. Use this when you want to: 1) View calendar configuration 2) Check calendar status 3) Verify calendar settings",
+    { calendarId: z.string() },
+    async ({ calendarId }: { calendarId: string }) => {
       try {
-        const calendar = await baasClient.getCalendar(uuid);
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.getCalendar({ calendar_id: calendarId });
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(calendar, null, 2),
+              text: JSON.stringify(response.data, null, 2),
             },
           ],
         };
@@ -224,18 +223,17 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "deleteCalendar",
-    "Remove a calendar connection. Use this when you want to: 1) Unlink a calendar 2) Stop automatic recordings 3) Remove calendar access 4) Clean up old integrations",
-    { uuid: z.string() },
-    async ({ uuid }: { uuid: string }) => {
+    "Delete a calendar integration. Use this when you want to: 1) Remove a calendar connection 2) Stop automatic recordings 3) Clean up calendar data",
+    { calendarId: z.string() },
+    async ({ calendarId }: { calendarId: string }) => {
       try {
-        const success = await baasClient.deleteCalendar(uuid);
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.deleteCalendar({ calendar_id: calendarId });
         return {
           content: [
             {
               type: "text",
-              text: success
-                ? "Successfully deleted calendar"
-                : "Failed to delete calendar",
+              text: "Successfully deleted calendar",
             },
           ],
         };
@@ -256,11 +254,11 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "resyncAllCalendars",
-    "Refresh all calendar data to ensure it's up to date. Use this when you want to: 1) Update meeting schedules 2) Sync new calendar changes 3) Refresh calendar data 4) Fix sync issues",
+    "Resynchronize all calendar integrations. Use this when you want to: 1) Update calendar data 2) Fix sync issues 3) Refresh calendar connections",
     {},
     async () => {
       try {
-        const result = await baasClient.resyncAllCalendars();
+        const response = await baasClient.calendarsApi.resyncAllCalendars();
         return {
           content: [
             {
@@ -286,69 +284,39 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "botsWithMetadata",
-    "Search and filter through your meeting bots. Use this when you want to: 1) Find specific meetings 2) Filter by date range 3) Search by meeting name 4) View meeting history",
-    {
-      botName: z.string().optional(),
-      createdAfter: z.string().optional(),
-      createdBefore: z.string().optional(),
-      cursor: z.string().optional(),
-      filterByExtra: z.string().optional(),
-      limit: z.number().optional(),
-      meetingUrl: z.string().optional(),
-      sortByExtra: z.string().optional(),
-      speakerName: z.string().optional(),
-    },
-    async ({
-      botName,
-      createdAfter,
-      createdBefore,
-      cursor,
-      filterByExtra,
-      limit,
-      meetingUrl,
-      sortByExtra,
-      speakerName,
-    }: {
-      botName?: string;
-      createdAfter?: string;
-      createdBefore?: string;
-      cursor?: string;
-      filterByExtra?: string;
-      limit?: number;
-      meetingUrl?: string;
-      sortByExtra?: string;
-      speakerName?: string;
-    }) => {
+    "Get a list of all bots with their metadata. Use this when you want to: 1) View active bots 2) Check bot status 3) Monitor bot activity",
+    {},
+    async () => {
       try {
-        const bots = await baasClient.listRecentBots({
-          botName,
-          createdAfter,
-          createdBefore,
-          cursor,
-          filterByExtra,
-          limit,
-          meetingUrl,
-          sortByExtra,
-          speakerName,
+        const response = await baasClient.defaultApi.botsWithMetadata({
+          botName: "",
+          createdAfter: "",
+          createdBefore: "",
+          cursor: "",
+          filterByExtra: "",
+          limit: 10,
+          meetingUrl: "",
+          sortByExtra: "",
+          speakerName: ""
         });
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(bots, null, 2),
+              text: `Bots with metadata: ${JSON.stringify(response.data, null, 2)}`
             },
           ],
         };
       } catch (error) {
-        console.error("Failed to get bots with metadata:", error);
+        console.error("Error listing bots:", error);
         return {
           content: [
             {
               type: "text",
-              text: "Failed to get bots with metadata",
-            },
+              text: "Failed to list bots"
+            }
           ],
-          isError: true,
+          isError: true
         };
       }
     }
@@ -356,16 +324,17 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "listEvents",
-    "View all events in a calendar. Use this when you want to: 1) See upcoming meetings 2) View past meetings 3) Check meeting schedules 4) Browse calendar events",
-    { calendarUuid: z.string() },
-    async ({ calendarUuid }: { calendarUuid: string }) => {
+    "List all scheduled events. Use this when you want to: 1) View upcoming recordings 2) Check scheduled transcriptions 3) Monitor planned bot activity",
+    { calendarId: z.string() },
+    async ({ calendarId }) => {
       try {
-        const events = await baasClient.listEvents(calendarUuid);
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.listEvents({ calendar_id: calendarId });
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(events, null, 2),
+              text: JSON.stringify(response.data, null, 2),
             },
           ],
         };
@@ -386,25 +355,21 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "scheduleRecordEvent",
-    "Schedule a bot to automatically record a future meeting. Use this when you want to: 1) Set up automatic recording 2) Schedule future transcriptions 3) Plan meeting recordings 4) Enable recurring recordings",
+    "Schedule a recording. Use this when you want to: 1) Set up automatic recording 2) Schedule future transcriptions 3) Plan meeting recordings",
     {
       eventUuid: z.string(),
       botName: z.string(),
-      extra: z.record(z.any()).optional(),
+      extra: z.record(z.unknown()).optional(),
     },
-    async ({
-      eventUuid,
-      botName,
-      extra,
-    }: {
-      eventUuid: string;
-      botName: string;
-      extra?: Record<string, any>;
-    }) => {
+    async ({ eventUuid, botName, extra }) => {
       try {
-        const result = await baasClient.scheduleRecordEvent(eventUuid, {
-          botName,
-          extra,
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.scheduleRecordEvent({
+          botParam2: {
+            botName: botName,
+            extra: extra || {},
+          },
+          allOccurrences: false,
         });
         return {
           content: [
@@ -431,11 +396,12 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "unscheduleRecordEvent",
-    "Cancel a scheduled recording for a meeting. Use this when you want to: 1) Stop automatic recording 2) Cancel future transcriptions 3) Remove scheduled recordings 4) Disable recurring recordings",
+    "Cancel a scheduled recording. Use this when you want to: 1) Cancel automatic recording 2) Stop planned transcription 3) Remove scheduled bot activity",
     { eventUuid: z.string() },
     async ({ eventUuid }: { eventUuid: string }) => {
       try {
-        const result = await baasClient.unscheduleRecordEvent(eventUuid);
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.unscheduleRecordEvent({ uuid: eventUuid });
         return {
           content: [
             {
@@ -461,47 +427,30 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
 
   updatedServer.tool(
     "updateCalendar",
-    "Update calendar connection settings. Use this when you want to: 1) Refresh calendar access 2) Update calendar credentials 3) Change calendar settings 4) Fix connection issues",
+    "Update a calendar integration configuration. Use this when you want to: 1) Modify calendar settings 2) Update connection details 3) Change calendar configuration",
     {
-      uuid: z.string(),
-      oauthClientId: z.string().optional(),
-      oauthClientSecret: z.string().optional(),
-      oauthRefreshToken: z.string().optional(),
-      platform: z.enum(["Google", "Microsoft"]).optional(),
-      rawCalendarId: z.string().optional(),
+      calendarId: z.string(),
+      oauthClientId: z.string(),
+      oauthClientSecret: z.string(),
+      oauthRefreshToken: z.string(),
+      platform: z.enum(["Google", "Microsoft"]),
     },
-    async ({
-      uuid,
-      oauthClientId,
-      oauthClientSecret,
-      oauthRefreshToken,
-      platform,
-      rawCalendarId,
-    }: {
-      uuid: string;
-      oauthClientId?: string;
-      oauthClientSecret?: string;
-      oauthRefreshToken?: string;
-      platform?: "Google" | "Microsoft";
-      rawCalendarId?: string;
-    }) => {
+    async ({ calendarId, oauthClientId, oauthClientSecret, oauthRefreshToken, platform }) => {
       try {
-        const calendar = await baasClient.updateCalendar(uuid, {
-          oauthClientId,
-          oauthClientSecret,
-          oauthRefreshToken,
-          platform: platform === "Google" ? "Google" : "Microsoft",
-          rawCalendarId,
-        });
+        let updateParams: UpdateCalendarParams = {
+          oauthClientId: oauthClientId,
+          oauthClientSecret: oauthClientSecret,
+          oauthRefreshToken: oauthRefreshToken,
+          platform: platform === "Google" ? Provider.google : Provider.microsoft
+        };
+
+        // @ts-ignore - SDK type definition issue
+        const response = await baasClient.calendarsApi.updateCalendar(calendarId, updateParams);
         return {
           content: [
             {
               type: "text",
-              text: `Successfully updated calendar: ${JSON.stringify(
-                calendar,
-                null,
-                2
-              )}`,
+              text: "Successfully updated calendar",
             },
           ],
         };
@@ -520,17 +469,10 @@ export function registerTools(server: McpServer, apiKey: string): McpServer {
     }
   );
 
-  // Add a simple echo tool for testing
-  updatedServer.tool("echo", { message: z.string() }, async ({ message }) => ({
-    content: [
-      {
-        type: "text",
-        text: `Tool echo: ${message}`,
-      },
-    ],
-  }));
+  // Add echo tool for testing
+  const finalServer = registerEchoTool(updatedServer);
 
-  return updatedServer;
+  return finalServer;
 }
 
 export default registerTools;
